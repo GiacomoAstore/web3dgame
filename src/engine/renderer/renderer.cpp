@@ -1,5 +1,10 @@
 #include "renderer.hpp"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/html5.h>
+#include <emscripten/emscripten.h>
+#endif
+
 #include <GL/glew.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -92,6 +97,19 @@ static cgltf_accessor* FindAccessorByType(const cgltf_primitive* primitive, cglt
 }
 
 // --- Renderer implementation ---
+
+static Renderer* g_currentRenderer = nullptr;
+
+extern "C" {
+#ifdef __EMSCRIPTEN__
+EMSCRIPTEN_KEEPALIVE
+#endif
+void SetCanvasSize(int width, int height) {
+    if (g_currentRenderer) {
+        g_currentRenderer->SetViewportSize(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+    }
+}
+}
 
 unsigned int Renderer::LoadModel(const std::string& modelPath) {
     std::string modelDir = GetDirectoryPath(modelPath);
@@ -262,7 +280,38 @@ bool Renderer::Init(uint32_t width, uint32_t height) {
     m_width = width;
     m_height = height;
 
-#ifndef __EMSCRIPTEN__
+#ifdef __EMSCRIPTEN__
+    EmscriptenWebGLContextAttributes attrs;
+    emscripten_webgl_init_context_attributes(&attrs);
+    attrs.alpha = false;
+    attrs.depth = true;
+    attrs.stencil = false;
+    attrs.antialias = true;
+    attrs.preserveDrawingBuffer = false;
+    attrs.enableExtensionsByDefault = true;
+    attrs.majorVersion = 2;
+    attrs.minorVersion = 0;
+
+    EMSCRIPTEN_WEBGL_CONTEXT_HANDLE context = emscripten_webgl_create_context("#canvas", &attrs);
+    if (context <= 0) {
+        std::cerr << "Failed to create WebGL2 context" << std::endl;
+        return false;
+    }
+
+    if (emscripten_webgl_make_context_current(context) != EMSCRIPTEN_RESULT_SUCCESS) {
+        std::cerr << "Failed to make WebGL2 context current" << std::endl;
+        return false;
+    }
+
+    int canvasWidth = 0;
+    int canvasHeight = 0;
+    if (emscripten_get_canvas_element_size("#canvas", &canvasWidth, &canvasHeight) == EMSCRIPTEN_RESULT_SUCCESS) {
+        if (canvasWidth > 0 && canvasHeight > 0) {
+            m_width = static_cast<uint32_t>(canvasWidth);
+            m_height = static_cast<uint32_t>(canvasHeight);
+        }
+    }
+#else
     glewExperimental = GL_TRUE;
     GLenum err = glewInit();
     if (err != GLEW_OK) {
@@ -276,6 +325,8 @@ bool Renderer::Init(uint32_t width, uint32_t height) {
     glDepthFunc(GL_LEQUAL);
     glViewport(0, 0, m_width, m_height);
 
+    g_currentRenderer = this;
+
     CHECK_GL_ERROR("Renderer::Init - GL state setup");
 
     unsigned int meshId = LoadModel("assets/models/vehicle-truck-yellow.glb");
@@ -284,8 +335,7 @@ bool Renderer::Init(uint32_t width, uint32_t height) {
         CreateDebugTriangle();
     }
 
-    const std::string vertexShader = R"glsl(
-        #version 300 es
+    const std::string vertexShader = R"glsl(#version 300 es
         precision highp float;
 
         layout(location = 0) in vec3 position;
@@ -301,8 +351,7 @@ bool Renderer::Init(uint32_t width, uint32_t height) {
         }
     )glsl";
 
-    const std::string fragmentShader = R"glsl(
-        #version 300 es
+    const std::string fragmentShader = R"glsl(#version 300 es
         precision highp float;
 
         in vec2 fragUV;
@@ -330,6 +379,7 @@ bool Renderer::Init(uint32_t width, uint32_t height) {
 }
 
 void Renderer::Shutdown() {
+    g_currentRenderer = nullptr;
     if (m_debugVAO != 0) {
         glDeleteVertexArrays(1, &m_debugVAO);
         m_debugVAO = 0;
@@ -347,6 +397,15 @@ void Renderer::Shutdown() {
 void Renderer::BeginFrame() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     CHECK_GL_ERROR("Renderer::BeginFrame");
+}
+
+void Renderer::SetViewportSize(uint32_t width, uint32_t height) {
+    if (width == 0 || height == 0) {
+        return;
+    }
+    m_width = width;
+    m_height = height;
+    glViewport(0, 0, m_width, m_height);
 }
 
 void Renderer::EndFrame() {

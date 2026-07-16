@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(web3dgame)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # --- Configuration ---
 
@@ -11,17 +13,11 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
 # Emscripten: setup output directory and compiler/linker flags BEFORE subdirectories
 if(EMSCRIPTEN)
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/web)
-    # Must pass -s flags at compile time too, so add them to CMAKE_CXX_FLAGS
-    # Note: USE_SDL=2 disabled for now due to Emscripten toolchain issues in bootstrap phase
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -s USE_WEBGL2=1 -s USE_GLFW=0")
     # Force use of Emscripten's libc++ instead of system C++ headers
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
     # Note: Cannot use -Werror in Emscripten compile phase due to toolchain constraints
     # in this container environment. Will apply -Werror at link time only (on main executable).
-    string(APPEND CMAKE_EXE_LINKER_FLAGS " -Werror")
-    # Linker flags for WASM output
-    add_link_options(-s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s NO_EXIT_RUNTIME=0)
-    string(APPEND CMAKE_EXE_LINKER_FLAGS " --shell-file ${CMAKE_SOURCE_DIR}/web/shell.html")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Werror -s USE_WEBGL2=1 -s USE_GLFW=0 -s WASM=1 -s ALLOW_MEMORY_GROWTH=1 -s NO_EXIT_RUNTIME=0 --shell-file ${CMAKE_SOURCE_DIR}/web/shell.html --preload-file ${CMAKE_SOURCE_DIR}/assets@/assets")
 else()
     # Desktop: apply -Werror at compile time
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror")
@@ -30,13 +26,10 @@ endif()
 # --- Dependencies ---
 
 # GLM (header-only, no special setup needed)
-if(NOT TARGET glm)
-    # Assume glm is installed system-wide or bundled
-    find_package(glm QUIET)
-    if(NOT glm_FOUND)
-        message(STATUS "GLM not found, assuming header-only installation")
-        include_directories(/usr/include)
-    endif()
+find_package(glm QUIET)
+if(NOT glm_FOUND)
+    message(STATUS "GLM package not found via CMake, using vendored headers from third_party/glm")
+    include_directories(SYSTEM ${CMAKE_SOURCE_DIR}/third_party/glm)
 endif()
 
 # GLEW (optional on Emscripten, but we'll skip it via preprocessor)

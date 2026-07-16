@@ -44,4 +44,8 @@ public:
 private:
     Renderer* m_renderer = nullptr;
     float m_elapsedTime = 0.0f;
+    
+    // Loaded model mesh IDs
+    unsigned int m_vehicleMeshId = 0xFFFFFFFF;  // vehicle-truck-yellow.glb
+    unsigned int m_trackMeshId = 0xFFFFFFFF;    // track-straight.glb
 };

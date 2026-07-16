@@ -93,7 +93,7 @@
 - **File**: `src/engine/math/math.hpp`
 - **Modulo**: Engine::Math
 - **Descrizione**: Aggregazione di GLM (header-only). Espone typedef `Vec2/3/4`, `Mat4`, `Quat`, e namespace `Math::` con funzioni helper (Perspective, LookAt, Translate, Rotate, Scale, Normalize, Cross, Dot, ecc.)
-- **Note**: GLM è assunto disponibile (installato con package manager o bundled). Se non trovato in CMake, assume `/usr/include`.
+- **Note**: GLM è assunto disponibile. La build usa prima `find_package(glm)` e se non trova il package usa la copia vendorizzata in `third_party/glm`.
 - **Ultimo aggiornamento**: 2026-07-16
 
 ---

@@ -19,6 +19,15 @@
     </style>
 </head>
 <body>
-    <script async type="application/javascript" src="web3dgame.js"></script>
+    <div id="container">
+        <canvas id="canvas"></canvas>
+    </div>
+    <div id="loading">
+        <h1>Racing 3D Multiplayer</h1>
+        <div class="spinner"></div>
+        <p>Loading WebAssembly...</p>
+        <p id="loadingStatus">Initializing...</p>
+    </div>
+    {{{ SCRIPT }}}
 </body>
 </html>

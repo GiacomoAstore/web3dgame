@@ -64,6 +64,11 @@ public:
     void DrawMesh(unsigned int meshId, Shader* shader, const float* mvpMatrix);
 
     /**
+     * Resize the renderer viewport to the given canvas dimensions.
+     */
+    void SetViewportSize(uint32_t width, uint32_t height);
+
+    /**
      * Get the current framebuffer dimensions.
      */
     unsigned int GetWidth() const { return m_width; }
