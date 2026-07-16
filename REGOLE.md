@@ -91,6 +91,22 @@
 
 ---
 
-## 9. Cosa fare se una regola sembra bloccarti
+## 9. Networking — Multiplayer P2P (WebRTC) per racing arcade
+
+> Decisione di progetto: gioco di **corse arcade**, stanze da **2 a 8 giocatori**, architettura **P2P assistito** (segnalazione + STUN/TURN) con modello **host-authoritative** (listen-server). Vedi ADR in `DOCUMENTAZIONE.md`.
+
+- **Vietato implementare fisica di gioco autorevole su più peer contemporaneamente.** Un solo peer per stanza (l'host) è autorità sullo stato di gara; gli altri peer inviano solo input, mai stato.
+- Canale dati: **WebRTC DataChannel** in modalità `unreliable + unordered` per i pacchetti di stato ad alta frequenza (posizione/velocità veicoli), **reliable** solo per eventi discreti (partenza gara, giro completato, disconnessione, chat).
+- **Vietato inviare stato fisico completo ad ogni frame.** Frequenza di invio dello stato: max 20-30 Hz lato host, non 60 Hz. Il client interpola tra gli stati ricevuti (interpolazione, non estrapolazione grezza) per il rendering a 60 fps.
+- Ogni client (non host) implementa **client-side prediction locale** solo per il proprio veicolo (per percepire input reattivo), corretta poi (reconciliation) quando arriva lo stato autorevole dall'host. Vietato applicare prediction sui veicoli altrui: quelli vanno solo interpolati.
+- Serve un piccolo **servizio di signaling** (fuori dal binario Wasm, es. Node.js/WebSocket leggero) usato solo per lo scambio iniziale di SDP/ICE tra i peer di una stanza. Non deve mai gestire logica di gioco.
+- Usare STUN pubblici per il NAT traversal; prevedere (anche se non implementato subito) un fallback TURN, perché una parte non trascurabile di reti domestiche/aziendali blocca il P2P diretto.
+- Se l'host lascia la stanza a metà gara, va gestita esplicitamente la migrazione (rielezione di un nuovo host o terminazione controllata della corsa) — non lasciare la stanza in uno stato indefinito.
+- Ogni messaggio scambiato in rete (formato, campi, frequenza) va documentato nella sezione "Networking" di `DOCUMENTAZIONE.md` **prima** di essere implementato, non dopo.
+- Vietato serializzare i messaggi di stato come JSON: usare un formato binario compatto (struct packed / flatbuffers-like fatto a mano) per minimizzare banda e parsing, dato il vincolo 20-30 Hz per N veicoli.
+
+---
+
+## 10. Cosa fare se una regola sembra bloccarti
 
 - Non aggirarla in silenzio. Segnalarla esplicitamente (commento `// REGOLA-ECCEZIONE: motivo` nel codice + nota in `DOCUMENTAZIONE.md`) e proporre l'eccezione prima di procedere.
