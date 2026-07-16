@@ -91,7 +91,19 @@
 
 ---
 
-## 9. Networking — Multiplayer P2P (WebRTC) per racing arcade
+## 9. Asset pipeline — Modelli 3D
+
+- **Formato obbligatorio: glTF 2.0 binario (`.glb`)**. Vietato importare/committare asset in FBX, OBJ, o altri formati — se un asset arriva in un formato diverso, va convertito in `.glb` prima di entrare in `assets/`, non caricato "così com'è" con un altro parser.
+- **Libreria di parsing: `cgltf`** (single-header, C puro), vendorizzata in `third_party/`. Vietato aggiungere `tinygltf` o altre librerie di parsing glTF in parallelo: una sola libreria per un solo formato.
+- Il parsing (cgltf → struct C++) e il caricamento GPU (VBO/VAO) sono due passi distinti e separati: `cgltf` porta i dati grezzi in memoria CPU, il `Renderer` li carica su GPU. Non mischiare le due responsabilità nello stesso metodo.
+- **Licenza**: ogni asset scaricato da terzi deve avere licenza CC0 o esplicitamente compatibile con l'uso previsto (verificata e annotata). Vietato importare asset con licenza non verificata o sconosciuta, anche "solo per prototipare" — se serve un placeholder rapido, usare un asset CC0 (es. Kenney.nl), non un asset non verificato.
+- Convenzione cartelle: `assets/models/<nome_asset>.glb`, `assets/textures/` solo se le texture non sono già embedded nel `.glb` (preferire sempre l'embedding quando possibile, per ridurre il numero di file da gestire).
+- Ogni asset introdotto va annotato in `DOCUMENTAZIONE.md` (sezione Renderer o Memoria/Risorse): nome file, provenienza, licenza, dimensione poligoni indicativa.
+- **Vietate allocazioni dinamiche di parsing dentro il game loop.** Il caricamento asset avviene in fase di load/init, mai frame per frame.
+
+---
+
+## 10. Networking — Multiplayer P2P (WebRTC) per racing arcade
 
 > Decisione di progetto: gioco di **corse arcade**, stanze da **2 a 8 giocatori**, architettura **P2P assistito** (segnalazione + STUN/TURN) con modello **host-authoritative** (listen-server). Vedi ADR in `DOCUMENTAZIONE.md`.
 
@@ -107,6 +119,6 @@
 
 ---
 
-## 10. Cosa fare se una regola sembra bloccarti
+## 11. Cosa fare se una regola sembra bloccarti
 
 - Non aggirarla in silenzio. Segnalarla esplicitamente (commento `// REGOLA-ECCEZIONE: motivo` nel codice + nota in `DOCUMENTAZIONE.md`) e proporre l'eccezione prima di procedere.
