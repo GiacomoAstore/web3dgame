@@ -35,6 +35,7 @@
 - [Engine — Memoria / Risorse](#engine--memoria--risorse)
 - [Game — Logica di gioco](#game--logica-di-gioco)
 - [Interoperabilità JS ↔ Wasm](#interoperabilità-js--wasm)
+- [Networking — Multiplayer P2P](#networking--multiplayer-p2p)
 - [Build / Tooling](#build--tooling)
 
 ---
@@ -77,6 +78,32 @@
 
 ---
 
+## Networking — Multiplayer P2P
+
+> Architettura: P2P assistito via WebRTC DataChannel, modello **host-authoritative**, stanze 2-8 giocatori. Vedi `REGOLE.md §9` per i vincoli obbligatori.
+
+### Componenti previsti
+- **Client (Wasm/browser)**: gioca, e se è l'host, calcola anche la fisica autorevole della stanza.
+- **Servizio di signaling** (fuori dal binario di gioco, es. piccolo server Node.js/WebSocket): scambia SDP/ICE tra i peer per aprire il DataChannel. Non tocca la logica di gioco.
+- **STUN** (pubblico) per NAT traversal; **TURN** di fallback da prevedere (non ancora implementato).
+
+### Formato messaggi di rete
+*(da compilare mano a mano che si implementano — ogni messaggio va documentato qui prima di essere scritto in codice, vedi regola §9)*
+
+```
+### NomeMessaggio
+- Direzione: host->client / client->host
+- Canale: reliable / unreliable
+- Frequenza: (es. 20 Hz, on-event)
+- Campi: elenco campo:tipo:significato
+- Dimensione stimata: byte
+```
+
+### Stato migrazione host
+*(da definire: rielezione vs terminazione gara — documentare qui la strategia scelta prima di implementarla)*
+
+---
+
 ## Build / Tooling
 
 ### Versione Emscripten in uso
@@ -95,3 +122,6 @@ cmake --build build
 > Quando si prende una decisione strutturale (es. "usiamo un ECS", "il game loop gira a timestep fisso"), annotarla qui con data e motivazione breve. Non serve un formato ADR completo, bastano 2-3 righe.
 
 - **AAAA-MM-GG** — *(esempio)* Deciso di usare WebGL2 invece di WebGPU: supporto browser più ampio e maturo con Emscripten al momento della scelta.
+- **2026-07-16** — Stack confermato: C/C++17 + Emscripten, rendering WebGL2.
+- **2026-07-16** — Genere scelto: **racing arcade**, stanze da 2 a 8 giocatori. Genere adatto al P2P perché lo stato di gioco (posizione/velocità veicoli) è compatto e tollerante a piccoli errori di sincronizzazione rispetto a un genere con combattimento preciso.
+- **2026-07-16** — Architettura di rete: **P2P assistito** via WebRTC DataChannel, modello **host-authoritative** (un peer per stanza è autorità sullo stato di gara). Scelto invece di un vero P2P simmetrico per evitare la complessità/vulnerabilità di sincronizzare fisica autorevole su più peer contemporaneamente. Richiede comunque un piccolo servizio di signaling esterno per lo scambio iniziale SDP/ICE (il browser non permette socket P2P grezzi).
