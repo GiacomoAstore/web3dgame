@@ -62,14 +62,21 @@
 ### Renderer
 - **File**: `src/engine/renderer/renderer.hpp`, `src/engine/renderer/renderer.cpp`
 - **Modulo**: Engine::Renderer
-- **Descrizione**: Classe `Renderer` che gestisce il contesto WebGL2, creazione shader, VAO/VBO, e draw call. Non conosce la logica di gioco; riceve istruzioni da Game tramite `DrawMesh()`.
+- **Descrizione**: Classe `Renderer` che gestisce il contesto WebGL2, creazione shader, VAO/VBO, draw call e caricamento asset 3D. Non conosce la logica di gioco; riceve istruzioni da Game tramite `DrawMesh()`.
 - **API principali**:
-  - `Init(width, height)`: Inizializza contesto GL, clear color, depth test, VAO/VBO per debug triangle, shader default
+  - `Init(width, height)`: Inizializza contesto GL, clear color, depth test, shader default, e carica il modello `vehicle-truck-yellow.glb`
   - `BeginFrame() / EndFrame()`: Clear framebuffer e flush draw call
-  - `CreateDebugTriangle()`: Crea e carica un triangolo colorato (RGB) nel VAO/VBO
-  - `DrawMesh(meshId, shader, mvpMatrix)`: Esegue una draw call con VAO + shader + MVP matrix
-  - `Shutdown()`: Libera GPU resource (VAO, VBO, shader programs)
-- **Shader default**: Vertex/fragment in GLSL ES 300 (WebGL2), prende position (vec3) + color (vec3), trasforma con mvpMatrix
+  - `LoadModel(modelPath)`: Carica un file glTF/glb, bufferizza i vertici e gli indici, gestisce immagini texture esterne via `stb_image`
+  - `DrawMesh(meshId, shader, mvpMatrix)`: Esegue una draw call con VAO + shader + MVP matrix, supporta mappe texture esterne quando presenti
+  - `Shutdown()`: Libera GPU resource (VAO, VBO, EBO, shader programs, texture)
+- **Shader default**: Vertex/fragment in GLSL ES 300 (WebGL2), prende position (vec3) + texcoord (vec2), usa texture se presente oppure bianco uniforme
+- **Asset 3D importati**:
+  - `assets/models/vehicle-truck-yellow.glb`: veicolo di test
+  - `assets/models/track-straight.glb`: pezzo pista lineare
+  - `assets/models/track-corner.glb`: pezzo pista curvo
+  - `assets/models/colormap.png`: texture esterna condivisa (non embedded)
+- **Provenienza**: Kenney Starter-Kit-Racing, GitHub KenneyNL/Starter-Kit-Racing
+- **Licenza**: CC0 (licenza inclusa in `assets/models/LICENSE`)
 - **State management**: 
   - VAO vincolato per tutta la durata della draw call per evitare state thrashing
   - Depth test enabled (GL_LEQUAL)

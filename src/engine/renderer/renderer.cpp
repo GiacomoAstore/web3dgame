@@ -3,7 +3,19 @@
 #include <GL/glew.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
+
 #include <iostream>
+#include <fstream>
+#include <sstream>
+#include <vector>
+#include <cstring>
+#include <cstdint>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+#define CGLTF_IMPLEMENTATION
+#include "cgltf.h"
 
 #ifdef DEBUG_GL
 #define CHECK_GL_ERROR(ctx) CheckGLErrors(ctx)
@@ -30,14 +42,226 @@ int32_t Shader::GetUniformLocation(const std::string& name) const {
     return glGetUniformLocation(m_programHandle, name.c_str());
 }
 
+static std::string GetDirectoryPath(const std::string& path) {
+    size_t pos = path.find_last_of("/\\");
+    if (pos == std::string::npos) {
+        return std::string();
+    }
+    return path.substr(0, pos + 1);
+}
+
+static bool ReadFileToVector(const std::string& path, std::vector<uint8_t>& outData) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        return false;
+    }
+    file.seekg(0, std::ios::end);
+    std::streamsize size = file.tellg();
+    if (size <= 0) {
+        return false;
+    }
+    file.seekg(0, std::ios::beg);
+    outData.resize(static_cast<size_t>(size));
+    if (!file.read(reinterpret_cast<char*>(outData.data()), size)) {
+        outData.clear();
+        return false;
+    }
+    return true;
+}
+
+static std::string JoinPath(const std::string& baseDir, const std::string& relativePath) {
+    if (relativePath.empty()) {
+        return baseDir;
+    }
+    if (relativePath[0] == '/' || relativePath.find("://") != std::string::npos) {
+        return relativePath;
+    }
+    if (baseDir.empty() || baseDir.back() == '/' || baseDir.back() == '\\') {
+        return baseDir + relativePath;
+    }
+    return baseDir + '/' + relativePath;
+}
+
+static cgltf_accessor* FindAccessorByType(const cgltf_primitive* primitive, cgltf_attribute_type attributeType) {
+    for (cgltf_size i = 0; i < primitive->attributes_count; ++i) {
+        if (primitive->attributes[i].type == attributeType) {
+            return primitive->attributes[i].data;
+        }
+    }
+    return nullptr;
+}
+
 // --- Renderer implementation ---
+
+unsigned int Renderer::LoadModel(const std::string& modelPath) {
+    std::string modelDir = GetDirectoryPath(modelPath);
+
+    cgltf_options options{};
+    cgltf_data* data = nullptr;
+    cgltf_result result = cgltf_parse_file(&options, modelPath.c_str(), &data);
+    if (result != cgltf_result_success) {
+        std::cerr << "Failed to parse glTF file: " << modelPath << std::endl;
+        return UINT_MAX;
+    }
+
+    result = cgltf_load_buffers(&options, data, modelPath.c_str());
+    if (result != cgltf_result_success) {
+        std::cerr << "Failed to load glTF buffers: " << modelPath << std::endl;
+        cgltf_free(data);
+        return UINT_MAX;
+    }
+
+    if (data->meshes_count == 0) {
+        std::cerr << "No mesh found in glTF: " << modelPath << std::endl;
+        cgltf_free(data);
+        return UINT_MAX;
+    }
+
+    const cgltf_mesh* mesh = &data->meshes[0];
+    if (mesh->primitives_count == 0) {
+        std::cerr << "No primitive found in glTF mesh: " << modelPath << std::endl;
+        cgltf_free(data);
+        return UINT_MAX;
+    }
+
+    const cgltf_primitive* primitive = &mesh->primitives[0];
+    if (primitive->type != cgltf_primitive_type_triangles) {
+        std::cerr << "Unsupported primitive type in glTF: " << modelPath << std::endl;
+        cgltf_free(data);
+        return UINT_MAX;
+    }
+
+    cgltf_accessor* positionAccessor = FindAccessorByType(primitive, cgltf_attribute_type_position);
+    if (!positionAccessor) {
+        std::cerr << "Missing POSITION attribute in glTF mesh: " << modelPath << std::endl;
+        cgltf_free(data);
+        return UINT_MAX;
+    }
+
+    cgltf_accessor* texcoordAccessor = FindAccessorByType(primitive, cgltf_attribute_type_texcoord);
+    cgltf_size vertexCount = positionAccessor->count;
+    std::vector<float> positions(static_cast<size_t>(vertexCount) * 3);
+    if (cgltf_accessor_unpack_floats(positionAccessor, positions.data(), vertexCount * 3) != vertexCount * 3) {
+        std::cerr << "Failed to unpack POSITION data for glTF mesh: " << modelPath << std::endl;
+        cgltf_free(data);
+        return UINT_MAX;
+    }
+
+    std::vector<float> texcoords;
+    if (texcoordAccessor) {
+        texcoords.resize(static_cast<size_t>(vertexCount) * 2);
+        if (cgltf_accessor_unpack_floats(texcoordAccessor, texcoords.data(), vertexCount * 2) != vertexCount * 2) {
+            std::cerr << "Failed to unpack TEXCOORD_0 data for glTF mesh: " << modelPath << std::endl;
+            cgltf_free(data);
+            return UINT_MAX;
+        }
+    } else {
+        texcoords.resize(static_cast<size_t>(vertexCount) * 2);
+        std::fill(texcoords.begin(), texcoords.end(), 0.0f);
+    }
+
+    std::vector<float> vertices;
+    vertices.resize(static_cast<size_t>(vertexCount) * 5);
+    for (size_t i = 0; i < static_cast<size_t>(vertexCount); ++i) {
+        vertices[i * 5 + 0] = positions[i * 3 + 0];
+        vertices[i * 5 + 1] = positions[i * 3 + 1];
+        vertices[i * 5 + 2] = positions[i * 3 + 2];
+        vertices[i * 5 + 3] = texcoords[i * 2 + 0];
+        vertices[i * 5 + 4] = texcoords[i * 2 + 1];
+    }
+
+    std::vector<uint32_t> indices;
+    bool hasIndices = false;
+    if (primitive->indices) {
+        cgltf_size indexCount = primitive->indices->count;
+        indices.resize(static_cast<size_t>(indexCount));
+        if (cgltf_accessor_unpack_indices(primitive->indices, indices.data(), sizeof(uint32_t), indexCount) != indexCount) {
+            std::cerr << "Failed to unpack indices for glTF mesh: " << modelPath << std::endl;
+            cgltf_free(data);
+            return UINT_MAX;
+        }
+        hasIndices = true;
+    }
+
+    unsigned int textureId = 0;
+    bool hasTexture = false;
+    if (primitive->material && primitive->material->has_pbr_metallic_roughness) {
+        const cgltf_texture* texture = primitive->material->pbr_metallic_roughness.base_color_texture.texture;
+        if (texture && texture->image) {
+            const cgltf_image* image = texture->image;
+            std::vector<uint8_t> imageData;
+            int width = 0, height = 0, channels = 0;
+            unsigned char* pixels = nullptr;
+            if (image->uri) {
+                std::string imagePath = JoinPath(modelDir, image->uri);
+                if (ReadFileToVector(imagePath, imageData)) {
+                    pixels = stbi_load_from_memory(imageData.data(), static_cast<int>(imageData.size()), &width, &height, &channels, STBI_rgb_alpha);
+                }
+            } else if (image->buffer_view) {
+                const cgltf_buffer_view* bufferView = image->buffer_view;
+                const uint8_t* bufferData = reinterpret_cast<const uint8_t*>(bufferView->buffer->data) + bufferView->offset;
+                pixels = stbi_load_from_memory(bufferData, static_cast<int>(bufferView->size), &width, &height, &channels, STBI_rgb_alpha);
+            }
+
+            if (pixels) {
+                glGenTextures(1, &textureId);
+                glBindTexture(GL_TEXTURE_2D, textureId);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+                glGenerateMipmap(GL_TEXTURE_2D);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                glBindTexture(GL_TEXTURE_2D, 0);
+                stbi_image_free(pixels);
+                hasTexture = true;
+            } else {
+                std::cerr << "Failed to load texture for glTF model: " << modelPath << std::endl;
+            }
+        }
+    }
+
+    Mesh meshEntry;
+    meshEntry.hasTexture = hasTexture;
+    meshEntry.textureId = textureId;
+    meshEntry.hasIndices = hasIndices;
+    meshEntry.indexCount = hasIndices ? static_cast<unsigned int>(indices.size()) : static_cast<unsigned int>(vertexCount);
+
+    glGenVertexArrays(1, &meshEntry.vao);
+    glBindVertexArray(meshEntry.vao);
+
+    glGenBuffers(1, &meshEntry.vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, meshEntry.vbo);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), reinterpret_cast<void*>(0));
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), reinterpret_cast<void*>(3 * sizeof(float)));
+
+    if (hasIndices) {
+        glGenBuffers(1, &meshEntry.ebo);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, meshEntry.ebo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(uint32_t), indices.data(), GL_STATIC_DRAW);
+    }
+
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    if (hasIndices) {
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    }
+
+    m_meshes.push_back(meshEntry);
+    unsigned int meshId = static_cast<unsigned int>(m_meshes.size() - 1);
+
+    cgltf_free(data);
+    return meshId;
+}
 
 bool Renderer::Init(uint32_t width, uint32_t height) {
     m_width = width;
     m_height = height;
 
-    // Initialize GLEW (required on desktop, but Emscripten handles GL initialization differently)
-    // For Emscripten, the WebGL context is already initialized by the browser
 #ifndef __EMSCRIPTEN__
     glewExperimental = GL_TRUE;
     GLenum err = glewInit();
@@ -47,7 +271,6 @@ bool Renderer::Init(uint32_t width, uint32_t height) {
     }
 #endif
 
-    // Set up GL state
     glClearColor(0.1f, 0.15f, 0.2f, 1.0f);
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LEQUAL);
@@ -55,24 +278,26 @@ bool Renderer::Init(uint32_t width, uint32_t height) {
 
     CHECK_GL_ERROR("Renderer::Init - GL state setup");
 
-    // Create debug triangle
-    CreateDebugTriangle();
+    unsigned int meshId = LoadModel("assets/models/vehicle-truck-yellow.glb");
+    if (meshId == UINT_MAX) {
+        std::cerr << "Falling back to debug triangle" << std::endl;
+        CreateDebugTriangle();
+    }
 
-    // Create default shader
     const std::string vertexShader = R"glsl(
         #version 300 es
         precision highp float;
 
         layout(location = 0) in vec3 position;
-        layout(location = 1) in vec3 color;
+        layout(location = 1) in vec2 texcoord;
 
-        out vec3 fragColor;
+        out vec2 fragUV;
 
         uniform mat4 mvpMatrix;
 
         void main() {
             gl_Position = mvpMatrix * vec4(position, 1.0);
-            fragColor = color;
+            fragUV = texcoord;
         }
     )glsl";
 
@@ -80,11 +305,17 @@ bool Renderer::Init(uint32_t width, uint32_t height) {
         #version 300 es
         precision highp float;
 
-        in vec3 fragColor;
+        in vec2 fragUV;
+        uniform sampler2D uTexture;
+        uniform bool uUseTexture;
         out vec4 outColor;
 
         void main() {
-            outColor = vec4(fragColor, 1.0);
+            if (uUseTexture) {
+                outColor = texture(uTexture, fragUV);
+            } else {
+                outColor = vec4(1.0, 1.0, 1.0, 1.0);
+            }
         }
     )glsl";
 
@@ -94,7 +325,7 @@ bool Renderer::Init(uint32_t width, uint32_t height) {
         return false;
     }
 
-    m_defaultShader = std::make_unique<Shader>(programHandle);
+    m_defaultShader = new Shader(programHandle);
     return true;
 }
 
@@ -107,7 +338,10 @@ void Renderer::Shutdown() {
         glDeleteBuffers(1, &m_debugVBO);
         m_debugVBO = 0;
     }
-    m_defaultShader.reset();
+    if (m_defaultShader) {
+        delete m_defaultShader;
+        m_defaultShader = nullptr;
+    }
 }
 
 void Renderer::BeginFrame() {
@@ -120,52 +354,80 @@ void Renderer::EndFrame() {
 }
 
 uint32_t Renderer::CreateDebugTriangle() {
-    // Vertices: position (3 floats) + color (3 floats)
     float vertices[] = {
-        // Position              // Color
-        -0.5f, -0.5f, 0.0f,     1.0f, 0.0f, 0.0f,  // Red
-         0.5f, -0.5f, 0.0f,     0.0f, 1.0f, 0.0f,  // Green
-         0.0f,  0.5f, 0.0f,     0.0f, 0.0f, 1.0f   // Blue
+        -0.5f, -0.5f, 0.0f,  0.0f, 0.0f,
+         0.5f, -0.5f, 0.0f,  1.0f, 0.0f,
+         0.0f,  0.5f, 0.0f,  0.5f, 1.0f,
     };
 
-    // Create VAO
     glGenVertexArrays(1, &m_debugVAO);
     glBindVertexArray(m_debugVAO);
     CHECK_GL_ERROR("Renderer::CreateDebugTriangle - GenVertexArrays");
 
-    // Create VBO
     glGenBuffers(1, &m_debugVBO);
     glBindBuffer(GL_ARRAY_BUFFER, m_debugVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     CHECK_GL_ERROR("Renderer::CreateDebugTriangle - BufferData");
 
-    // Position attribute
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-
-    // Color attribute
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), reinterpret_cast<void*>(0));
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), reinterpret_cast<void*>(3 * sizeof(float)));
 
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
 
     CHECK_GL_ERROR("Renderer::CreateDebugTriangle - VAO setup");
-
-    return 0;  // Single mesh ID for now
+    return 0;
 }
 
 void Renderer::DrawMesh(uint32_t meshId, Shader* shader, const float* mvpMatrix) {
     if (shader == nullptr) {
-        shader = m_defaultShader.get();
+        shader = m_defaultShader;
     }
 
     shader->Use();
     shader->SetUniformMatrix4("mvpMatrix", mvpMatrix);
 
-    glBindVertexArray(m_debugVAO);
-    glDrawArrays(GL_TRIANGLES, 0, m_debugVertexCount);
-    glBindVertexArray(0);
+    bool drewMesh = false;
+    if (meshId < m_meshes.size()) {
+        const Mesh& mesh = m_meshes[meshId];
+        GLint uUseTexture = glGetUniformLocation(shader->GetHandle(), "uUseTexture");
+        if (uUseTexture >= 0) {
+            glUniform1i(uUseTexture, mesh.hasTexture ? 1 : 0);
+        }
+
+        if (mesh.hasTexture) {
+            GLint uTexture = glGetUniformLocation(shader->GetHandle(), "uTexture");
+            if (uTexture >= 0) {
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, mesh.textureId);
+                glUniform1i(uTexture, 0);
+            }
+        }
+
+        glBindVertexArray(mesh.vao);
+        if (mesh.hasIndices) {
+            glDrawElements(GL_TRIANGLES, mesh.indexCount, GL_UNSIGNED_INT, nullptr);
+        } else {
+            glDrawArrays(GL_TRIANGLES, 0, mesh.indexCount);
+        }
+        glBindVertexArray(0);
+        if (mesh.hasTexture) {
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
+        drewMesh = true;
+    }
+
+    if (!drewMesh && m_debugVAO != 0) {
+        GLint uUseTexture = glGetUniformLocation(shader->GetHandle(), "uUseTexture");
+        if (uUseTexture >= 0) {
+            glUniform1i(uUseTexture, 0);
+        }
+        glBindVertexArray(m_debugVAO);
+        glDrawArrays(GL_TRIANGLES, 0, m_debugVertexCount);
+        glBindVertexArray(0);
+    }
 
     CHECK_GL_ERROR("Renderer::DrawMesh");
 }
@@ -230,6 +492,7 @@ uint32_t Renderer::CompileShaderProgram(const std::string& vertexSource,
 }
 
 void Renderer::CheckGLErrors(const std::string& context) {
+    (void)context;
 #ifdef DEBUG_GL
     GLenum err;
     while ((err = glGetError()) != GL_NO_ERROR) {

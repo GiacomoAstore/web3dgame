@@ -1,12 +1,13 @@
 #pragma once
 
-#include <cstdint>
-#include <memory>
 #include <string>
 #include <vector>
 
 // Forward declarations
 class Shader;
+
+// TODO: Replace raw pointer with std::unique_ptr once allocator custom is implemented
+// (Bootstrap phase — will fix in memory management phase)
 
 /**
  * Renderer - Manages WebGL2 context, shaders, VAOs, VBOs, and draw calls.
@@ -20,7 +21,7 @@ public:
      * 
      * @return true if initialization succeeded, false otherwise
      */
-    bool Init(uint32_t width, uint32_t height);
+    bool Init(unsigned int width, unsigned int height);
 
     /**
      * Clean up GPU resources (shaders, buffers, VAOs).
@@ -43,7 +44,15 @@ public:
      * 
      * @return handle/ID of the created mesh (currently just returns 0 for single mesh)
      */
-    uint32_t CreateDebugTriangle();
+    unsigned int CreateDebugTriangle();
+
+    /**
+     * Load a glTF/glb model into GPU buffers.
+     * 
+     * @param modelPath Relative or absolute path to the model file
+     * @return mesh ID, or UINT_MAX on failure
+     */
+    unsigned int LoadModel(const std::string& modelPath);
 
     /**
      * Draw the mesh with the given shader and transformation.
@@ -52,13 +61,13 @@ public:
      * @param shader Shader program to use
      * @param mvpMatrix Model-view-projection matrix
      */
-    void DrawMesh(uint32_t meshId, Shader* shader, const float* mvpMatrix);
+    void DrawMesh(unsigned int meshId, Shader* shader, const float* mvpMatrix);
 
     /**
      * Get the current framebuffer dimensions.
      */
-    uint32_t GetWidth() const { return m_width; }
-    uint32_t GetHeight() const { return m_height; }
+    unsigned int GetWidth() const { return m_width; }
+    unsigned int GetHeight() const { return m_height; }
 
     /**
      * Get the current frame time (for stats/debug).
@@ -66,17 +75,30 @@ public:
     float GetFrameTime() const { return m_frameTime; }
 
 private:
-    uint32_t m_width = 800;
-    uint32_t m_height = 600;
+    unsigned int m_width = 800;
+    unsigned int m_height = 600;
     float m_frameTime = 0.0f;
 
-    // GPU resources (VAO, VBO for debug triangle)
-    uint32_t m_debugVAO = 0;
-    uint32_t m_debugVBO = 0;
-    uint32_t m_debugVertexCount = 3;
+    struct Mesh {
+        unsigned int vao = 0;
+        unsigned int vbo = 0;
+        unsigned int ebo = 0;
+        unsigned int indexCount = 0;
+        unsigned int textureId = 0;
+        bool hasTexture = false;
+        bool hasIndices = false;
+    };
 
-    // Default shader program
-    std::unique_ptr<Shader> m_defaultShader;
+    // GPU resources (VAO, VBO for debug triangle)
+    unsigned int m_debugVAO = 0;
+    unsigned int m_debugVBO = 0;
+    unsigned int m_debugVertexCount = 3;
+
+    // Loaded model meshes
+    std::vector<Mesh> m_meshes;
+
+    // Default shader program (raw pointer for bootstrap — will use unique_ptr with allocator later)
+    Shader* m_defaultShader = nullptr;
 
     /**
      * Compile and link a shader program.
@@ -85,8 +107,8 @@ private:
      * @param fragmentSource GLSL fragment shader source code
      * @return OpenGL program handle, or 0 if compilation failed
      */
-    uint32_t CompileShaderProgram(const std::string& vertexSource,
-                                   const std::string& fragmentSource);
+    unsigned int CompileShaderProgram(const std::string& vertexSource,
+                                       const std::string& fragmentSource);
 
     /**
      * Check for GL errors and log them.
@@ -103,7 +125,7 @@ public:
     /**
      * Create a shader from vertex and fragment sources.
      */
-    Shader(uint32_t programHandle) : m_programHandle(programHandle) {}
+    Shader(unsigned int programHandle) : m_programHandle(programHandle) {}
 
     /**
      * Use this shader for subsequent draw calls.
@@ -118,13 +140,13 @@ public:
     /**
      * Get the OpenGL program handle (for internal use).
      */
-    uint32_t GetHandle() const { return m_programHandle; }
+    unsigned int GetHandle() const { return m_programHandle; }
 
 private:
-    uint32_t m_programHandle = 0;
+    unsigned int m_programHandle = 0;
 
     /**
      * Get the uniform location by name.
      */
-    int32_t GetUniformLocation(const std::string& name) const;
+    int GetUniformLocation(const std::string& name) const;
 };

@@ -14,5 +14,5 @@ public:
     // PLACEHOLDER: stub methods only
     bool Init() { return true; }
     void Shutdown() {}
-    void Update(float deltaTime) {}
+    void Update(float /* deltaTime */) {}  // Parameter not used in placeholder
 };

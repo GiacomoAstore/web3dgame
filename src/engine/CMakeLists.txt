@@ -7,11 +7,9 @@ target_include_directories(engine PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# Ensure math header is available
+# Ensure math header and third-party headers are available
 target_include_directories(engine PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/math
+    ${CMAKE_SOURCE_DIR}/third_party/cgltf
+    ${CMAKE_SOURCE_DIR}/third_party/stb
 )
-
-if(EMSCRIPTEN)
-    target_compile_options(engine PRIVATE -s USE_SDL=2 -s USE_WEBGL2=1)
-endif()

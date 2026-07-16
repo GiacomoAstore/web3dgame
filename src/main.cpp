@@ -29,6 +29,8 @@ void MainLoop() {
 }
 
 int main(int argc, char* argv[]) {
+    (void)argc;
+    (void)argv;
     std::cout << "[main] Starting Racing 3D Multiplayer..." << std::endl;
 
     // Create and initialize engine

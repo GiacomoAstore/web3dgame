@@ -4,7 +4,6 @@
 #include "../../game/game.hpp"
 
 #include <iostream>
-#include <chrono>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
@@ -13,21 +12,25 @@
 // Global engine instance
 Engine* g_engine = nullptr;
 
-bool Engine::Init(uint32_t windowWidth, uint32_t windowHeight) {
+bool Engine::Init(unsigned int windowWidth, unsigned int windowHeight) {
     std::cout << "[Engine] Initializing... (requested: " << windowWidth << "x" << windowHeight << ")" << std::endl;
 
     // Create and initialize renderer
-    m_renderer = std::make_unique<Renderer>();
+    m_renderer = new Renderer();
     if (!m_renderer->Init(windowWidth, windowHeight)) {
         std::cerr << "[Engine] Renderer initialization failed" << std::endl;
+        delete m_renderer;
+        m_renderer = nullptr;
         return false;
     }
     std::cout << "[Engine] Renderer initialized" << std::endl;
 
     // Create and initialize game
-    m_game = std::make_unique<Game>();
-    if (!m_game->Init(m_renderer.get())) {
+    m_game = new Game();
+    if (!m_game->Init(m_renderer)) {
         std::cerr << "[Engine] Game initialization failed" << std::endl;
+        delete m_game;
+        m_game = nullptr;
         return false;
     }
     std::cout << "[Engine] Game initialized" << std::endl;
@@ -45,12 +48,14 @@ void Engine::Shutdown() {
 
     if (m_game) {
         m_game->Shutdown();
-        m_game.reset();
+        delete m_game;
+        m_game = nullptr;
     }
 
     if (m_renderer) {
         m_renderer->Shutdown();
-        m_renderer.reset();
+        delete m_renderer;
+        m_renderer = nullptr;
     }
 
     std::cout << "[Engine] Shutdown complete" << std::endl;
@@ -61,11 +66,19 @@ void Engine::Tick() {
         return;
     }
 
-    // Simple frame timing (in a real engine, use a proper timer)
-    static auto lastTime = std::chrono::high_resolution_clock::now();
-    auto now = std::chrono::high_resolution_clock::now();
-    m_deltaTime = std::chrono::duration<float>(now - lastTime).count();
+#ifdef __EMSCRIPTEN__
+    // Emscripten: timing via emscripten_get_now() (in milliseconds)
+    static double lastTime = 0.0;
+    double now = emscripten_get_now();
+    if (lastTime == 0.0) {
+        lastTime = now;  // First call
+    }
+    m_deltaTime = (float)((now - lastTime) / 1000.0);  // Convert to seconds
     lastTime = now;
+#else
+    // Desktop fallback: simple fixed timestep
+    m_deltaTime = 0.016f;  // ~60 fps
+#endif
 
     // Cap delta time to avoid jumps (e.g., if tab loses focus)
     if (m_deltaTime > 0.05f) {
@@ -79,6 +92,6 @@ void Engine::Tick() {
 
     // Render frame
     m_renderer->BeginFrame();
-    m_game->Render(m_renderer.get());
+    m_game->Render(m_renderer);
     m_renderer->EndFrame();
 }
